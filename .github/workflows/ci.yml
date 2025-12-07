@@ -1,0 +1,92 @@
+name: CI / CD
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/mlops-taskmanager
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # Charge SECRET_KEY et DATABASE_URL à partir du secret ENV_VARIABLES
+      - name: Load environment variables
+        run: echo "${{ secrets.ENV_VARIABLES }}" >> $GITHUB_ENV
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.12"
+
+      # Chrome pour les tests e2e Selenium
+      - name: Install system dependencies (Chrome)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y wget
+          wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb
+          sudo dpkg -i google-chrome-stable_current_amd64.deb || sudo apt-get -f install -y
+
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pytest flake8 selenium webdriver-manager
+
+      # Lint le code
+      - name: Lint
+        run: flake8 .
+
+      # Tests unitaires + intégration
+      - name: Run unit and integration tests
+        run: pytest tests/test_unit.py tests/test_integration.py
+
+      # Démarrer l'app pour les tests e2e
+      - name: Start app for e2e tests
+        run: |
+          nohup python app.py > app.log 2>&1 &
+          sleep 15
+
+      # Tests e2e
+      - name: Run e2e tests
+        env:
+          E2E_BASE_URL: http://127.0.0.1:5001
+        run: pytest tests/test_e2e.py
+
+      # Build Docker image (validation seulement)
+      - name: Build Docker image (no push)
+        run: |
+          docker build -t $IMAGE_NAME:${{ github.sha }} .
+          docker tag $IMAGE_NAME:${{ github.sha }} $IMAGE_NAME:latest
+
+  push-image:
+    # seulement pour les push sur main
+    needs: test-and-build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      IMAGE_NAME: ${{ secrets.DOCKERHUB_USERNAME }}/mlops-taskmanager
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Load environment variables
+        run: echo "${{ secrets.ENV_VARIABLES }}" >> $GITHUB_ENV
+
+      - name: Build Docker image
+        run: |
+          docker build -t $IMAGE_NAME:${{ github.sha }} .
+          docker tag $IMAGE_NAME:${{ github.sha }} $IMAGE_NAME:latest
+
+      - name: Login to Docker Hub
+        run: echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin
+
+      - name: Push Docker image to Docker Hub
+        run: |
+          docker push $IMAGE_NAME:${{ github.sha }}
+          docker push $IMAGE_NAME:latest

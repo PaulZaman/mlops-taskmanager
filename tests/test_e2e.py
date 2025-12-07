@@ -77,12 +77,14 @@ def create_task_via_ui(driver, title="E2E Task", description="desc"):
     driver.get(BASE_URL + "/tasks/new")
     driver.find_element(By.NAME, "title").send_keys(title)
     driver.find_element(By.NAME, "description").send_keys(description)
-    # due_date optionnelle → on peut laisser vide
+
+    old_url = driver.current_url
     _submit_form(driver)
 
-    # retour à la page d'index
+    # Attendre la redirection vers la page d'index
     WebDriverWait(driver, 10).until(
-        lambda d: d.current_url.startswith(BASE_URL + "/")
+        lambda d: d.current_url.rstrip("/") == BASE_URL.rstrip("/")
+                  and d.current_url != old_url
     )
     return title
 

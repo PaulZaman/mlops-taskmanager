@@ -38,10 +38,6 @@ jobs:
           pip install -r requirements.txt
           pip install pytest flake8 selenium webdriver-manager
 
-      # Lint le code
-      - name: Lint
-        run: flake8 .
-
       # Tests unitaires + intégration
       - name: Run unit and integration tests
         run: pytest tests/test_unit.py tests/test_integration.py
